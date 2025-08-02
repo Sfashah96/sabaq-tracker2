@@ -1,75 +1,132 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+// src/app/(tabs)/index.tsx
+import {useRouter} from 'expo-router';
+import React, {useState} from 'react';
+import {ActivityIndicator, FlatList, Pressable, StyleSheet, TouchableOpacity, View} from 'react-native';
+import Toast from 'react-native-toast-message';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+import {AddStudentDialog} from '@/components/AddStudentDialog';
+import {ConfirmationModal} from '@/components/ConfirmationModal';
+import {IconSymbol} from '@/components/ui/IconSymbol';
+import {ThemedText, ThemedView} from '@/components/ui/Themed';
+import {Colors} from '@/constants/Colors';
+import {useDatabase} from '@/hooks/useDatabase';
+import {Student} from '@/types';
+import {useColorScheme} from 'react-native';
 
-export default function HomeScreen() {
+// Student Card Component (can be in its own file: components/StudentCard.tsx)
+function StudentCard({student, onPress, onDelete}: {student: Student; onPress: () => void; onDelete: () => void}) {
+  const colorScheme = useColorScheme() ?? 'light';
+  const themeColors = Colors[colorScheme];
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
+    <Pressable onPress={onPress}>
+      <ThemedView style={[styles.card, {shadowColor: themeColors.text}]} lightColor={themeColors.surface} darkColor={themeColors.surface}>
+        <ThemedText style={styles.cardText}>{student.name}</ThemedText>
+        <TouchableOpacity onPress={onDelete} style={styles.deleteButton}>
+          <IconSymbol name="trash.fill" size={22} color={themeColors.danger} />
+        </TouchableOpacity>
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
+    </Pressable>
+  );
+}
+
+export default function TrackerScreen() {
+  const {students, isLoading, addStudent, deleteStudent: deleteStudentFromDB} = useDatabase();
+  const [isAddModalVisible, setAddModalVisible] = useState(false);
+  const [isConfirmModalVisible, setConfirmModalVisible] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const router = useRouter();
+  const colorScheme = useColorScheme() ?? 'light';
+  const themeColors = Colors[colorScheme];
+
+  const handleAddStudent = async (name: string) => {
+    try {
+      await addStudent(name);
+      Toast.show({type: 'success', text1: 'Student Added!', text2: `${name} has been added to your list.`});
+    } catch (e) {
+      Toast.show({type: 'error', text1: 'Error', text2: 'Could not add student.'});
+      console.error(e);
+    }
+  };
+
+  const openDeleteConfirmation = (student: Student) => {
+    setStudentToDelete(student);
+    setConfirmModalVisible(true);
+  };
+
+  const handleDeleteStudent = async () => {
+    if (!studentToDelete) return;
+    try {
+      await deleteStudentFromDB(studentToDelete.id);
+      Toast.show({type: 'success', text1: 'Student Deleted'});
+    } catch (e) {
+      Toast.show({type: 'error', text1: 'Error', text2: 'Could not delete student.'});
+    } finally {
+      setConfirmModalVisible(false);
+      setStudentToDelete(null);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <ThemedView style={styles.centered}>
+        <ActivityIndicator size="large" color={themeColors.tint} />
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    );
+  }
+
+  return (
+    <ThemedView style={styles.container}>
+      <FlatList
+        data={students}
+        keyExtractor={item => item.id.toString()}
+        renderItem={({item}) => <StudentCard student={item} onPress={() => router.push(`/student/${item.id}`)} onDelete={() => openDeleteConfirmation(item)} />}
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={() => (
+          <View style={styles.centered}>
+            <ThemedText style={{fontSize: 18, opacity: 0.7}}>No students yet.</ThemedText>
+            <ThemedText style={{opacity: 0.5}}>Tap the '+' to add one!</ThemedText>
+          </View>
+        )}
+      />
+
+      <Pressable style={[styles.fab, {backgroundColor: themeColors.tint}]} onPress={() => setAddModalVisible(true)}>
+        <IconSymbol name="plus" size={28} color="#FFF" />
+      </Pressable>
+
+      <AddStudentDialog isVisible={isAddModalVisible} onClose={() => setAddModalVisible(false)} onAdd={handleAddStudent} />
+
+      {studentToDelete && <ConfirmationModal isVisible={isConfirmModalVisible} onClose={() => setConfirmModalVisible(false)} onConfirm={handleDeleteStudent} title="Delete Student" message={`Are you sure you want to delete ${studentToDelete.name}? All their records will be lost.`} />}
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {flex: 1},
+  centered: {flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8},
+  listContent: {padding: 16, paddingBottom: 100},
+  card: {
+    padding: 20,
+    marginVertical: 8,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    elevation: 2,
+    shadowOffset: {width: 0, height: 1},
+    shadowOpacity: 0.1,
+    shadowRadius: 3
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+  cardText: {fontSize: 18, fontWeight: '500'},
+  deleteButton: {padding: 8},
+  fab: {
     position: 'absolute',
-  },
+    right: 24,
+    bottom: 24,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8
+  }
 });
